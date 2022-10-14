@@ -1,30 +1,61 @@
-"""
-ingest 
-de las 
-cosas
 
+import sys
+import json
+import findspark
+findspark.init()
+import pyspark
+import pandas as pd
+from pyspark.sql import SparkSession
+from pyspark.sql import Window
+from pyspark.sql import functions as F
+from pyspark.sql.types import *
+from collections import Counter
+from math import sqrt
+from pyspark import SparkContext
+import psycopg2
+import pandas as pd
+from pyspark.sql.types import StructType,StructField, StringType, IntegerType
+""" 
+conn = psycopg2.connect(
+    database="procesamiento",
+    user='abajana',
+    password='ab*5t3c5d1.2022',
+    host='192.168.29.70',
+    port= '5432'
+)
+  
+conn.autocommit = True
+cursor = conn.cursor()
+  
+sql = "SELECT * FROM msp12_aten_consul_ninos_v_04_2022_nor LIMIT 20"
+  
+  
+cursor.execute(sql)
+column_names = [desc[0] for desc in cursor.description]
+for i in column_names:
+    print(i)
+conn.commit()
+conn.close()
+""" 
 
-
-
-
- 
+sc = SparkContext('local[2]', 'test')
+spark = SparkSession\
+                .builder\
+                .appName("PythonWordCount")\
+                .getOrCreate()
+"""               
 reg_pobl = spark.read.format("jdbc") \
     .option("url", "jdbc:postgresql://192.168.29.70:5432/procesamiento") \
     .option("driver", "org.postgresql.Driver") \
-    .option("dbtable", "st05_registro_poblacion") \
     .option("user", "abajana")\
-    .option("password", "ab*5t3c5d1.2022").load()
-
-data_piv = spark.read.format("jdbc") \
-    .option("url", "jdbc:postgresql://192.168.29.70:5432/procesamiento") \
-    .option("driver", "org.postgresql.Driver") \
-    .option("dbtable", data_pi_nam) \
-    .option("user", "abajana")\
-    .option("password", "ab*5t3c5d1.2022").load()
-
+    .option("password", "ab*5t3c5d1.2022")\
+    .option("query", "select * from msp12_aten_consul_ninos_v_04_2022_nor limit 20").load()
+    reg_pobl.coalesce(1).write.mode("overwrite").option("header","true").csv( +'mach_join.csv')
 """
 
-field_eq ={ "atemed_id","e_est_salud","e_est_salud_id","e_est_salud_ruc","id_nac_viv",  \
+
+
+field_eq =[ "identificador" , "atemed_id","e_est_salud","e_est_salud_id","e_est_salud_ruc","id_nac_viv",  \
 "p_acido_a_s_mayor_12_sem", "p_antitetanica","p_apellidos","p_apellidos_asis","p_apellidos_prof", \
 "p_asistido_por","p_bacteriuria","p_calcio_mayor_12_sem","p_cedula","p_cedula_prof","p_cie10_diagnostico",\
 "p_clampeo","p_cod_establecimiento","p_consejeria_alim_comp","p_consejeria_lacmatex","p_control_prenat",\
@@ -48,10 +79,47 @@ field_eq ={ "atemed_id","e_est_salud","e_est_salud_id","e_est_salud_ruc","id_nac
 "p_tipo_iden","p_tipo_iden_repre","p_tipo_idens_prof","p_tipo_parto","p_tipo_prestacion_salud",\
 "p_tipo_seguro","p_vac_dlu24h_rlm_0a5","p_vacuna",\
 "p_vacuna_1","p_vacuna_2","p_vacuna_3","p_vacuna_4",\
-"p_vacuna_5","p_vacuna_hb","p_vacuna_n","p_vacuna_r","p_vitamina_a"}
- 
+"p_vacuna_5","p_vacuna_hb","p_vacuna_n","p_vacuna_r","p_vitamina_a"]
+
+""" 
+df = pd.read_csv("ms1.csv") 
+df1 = pd.DataFrame(columns = list(field_eq))
+df1['p_apellidos_prof']=45
+df2 = pd.DataFrame(columns = list(field_eq))
+"""
+db12 =  spark.read.format("csv")\
+            .option("header", "true")\
+            .load('ms1.csv')
 
 
- 
-for i in list(field_eq):
-    print(i)
+db15 =  spark.read.format("csv")\
+            .option("header", "true")\
+            .load('ms2.csv')
+ #primera parte del algotirmos crear un indicador unic
+# el identificacor unico se toma a partir de la formacion de dos fields p_cedula y p_fecha_atenmed_f
+def creaides(db1215):
+    if  ('p_cedula' in db1215.columns) and ('p_fecha_atenmed_f' in db1215.columns): 
+                db1215 = db1215.select('*',F.concat_ws('',\
+                            db1215.p_cedula, db1215.p_fecha_atenmed_f ).alias("identificador"))
+    return db1215
+
+# creando identificadores
+db12 = creaides(db12)
+db15 = creaides(db15)
+# agragando campos faltantes de los fields dataframe de almacenamiento
+
+
+def agrega_campo( db1215 , field_eq ):
+    camdb1215 = [i.name for i in db1215.schema.fields]
+    for i in field_eq:
+        if i not in camdb1215:
+            db1215 = db1215.withColumn(i, F.lit(None).cast(StringType())) 
+    
+    return db1215.select(field_eq)
+
+db12=agrega_campo(db12, field_eq)
+db15=agrega_campo(db15, field_eq)
+
+db12 = db12.alias('db12')
+db15 = db15.alias('db15')
+
